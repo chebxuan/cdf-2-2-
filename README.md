@@ -10,14 +10,26 @@
 2. **Predict**: P(S) = 1/2[S(2i) + S(2i+2)]，计算D(i) = S(2i+1) - P(S)
 3. **Update**: W(D) = 1/4[D(i-1) + D(i)]，计算A(i) = S(2i) + W(D)
 
+## 更新说明
+
+- 调整了块状电路使其与 figure5 一致：
+  - 修正 Predict 子块，显式接入 `S(2i+1)`，用行波进位加法器实现 `S(2i)+S(2i+2)`，通过位映射实现“/2”，再用减法器得到 `D(i)`。
+  - 完整块电路 `create_complete_cdf_block_circuit` 现按 Split→Predict→Update 贯通实现，不再使用复制占位；新增中间求和寄存器 `sum_predict_reg`、`sum_update_reg` 支撑加法与位移。
+- 增强 MATLAB 脚本以满足 figure6：
+  - 新增 `classical_cdf_transform_multilevel(signal, levels)` 与 `quantum_simulated_cdf_transform_multilevel(signal, levels)`，并在主程序演示了一维信号的三层分解 `A3, D3, D2, D1`。
+
+提示：为简洁起见，Predict/Update 中的除以2/4使用高位映射（右移）实现，属于可运行的近似可逆构造；若需完全可逆且无垃圾比特，可在此基础上添加“反算”阶段清理辅助位。
+
 ## 文件结构
 
 ```
-├── quantum_cdf_wavelet.py      # 量子CDF小波变换核心实现
-├── quantum_block_circuits.py   # 量子块状电路设计
+├── quantum_cdf_wavelet.py      # 量子CDF小波变换核心实现（含经典对比）
+├── quantum_block_circuits.py   # 量子块状电路（Split/Predict/Update 按公式实现）
 ├── quantum_cdf_demo.py         # 完整演示程序（需要qiskit）
-├── pure_python_cdf_demo.py     # 纯Python演示（无外部依赖）
-├── run_demo.py                 # 简化运行脚本
+├── pure_python_cdf_demo.py     # 纯Python演示（无外部依赖，经典验证）
+├── quantum_vs_classical_matlab.m # MATLAB 对比与三层分解演示（figure6）
+├── run_demo.py                 # 简化运行脚本（经典步骤展示）
+├── test_quantum_blocks.py      # 基本电路与算法自检
 ├── requirements.txt            # 项目依赖
 └── README.md                   # 项目说明
 ```
@@ -32,14 +44,30 @@
 python3 pure_python_cdf_demo.py
 ```
 
-### 方法2：完整量子实现
+### 方法2：查看并测试量子块电路（figure5）
 
-如果要运行完整的量子电路实现，需要安装依赖：
+需要安装依赖：
+
+```bash
+pip install -r requirements.txt
+python3 test_quantum_blocks.py         # 自检：算法与电路基础
+python3 quantum_block_circuits.py      # 构建并查看块状电路
+```
+
+### 方法3：完整量子演示
 
 ```bash
 pip install -r requirements.txt
 python3 quantum_cdf_demo.py
 ```
+
+### 方法4：MATLAB 三层分解演示（figure6）
+
+在 MATLAB 中打开并运行：
+
+- `quantum_vs_classical_matlab.m`
+  - 前半部分：对图像分块的经典/量子（模拟）一层分解与对比
+  - 末尾新增：一维信号的三层分解演示，输出 `A3, D3, D2, D1`
 
 ## 核心算法
 
@@ -67,19 +95,15 @@ A(i) = S(2i) + W(D)
 
 ## 量子电路设计
 
-### Split量子电路块
-- 基于索引奇偶性使用控制门分离样本
-- 使用CNOT门实现条件复制操作
-
-### Predict量子电路块
-- 量子加法器计算S(2i) + S(2i+2)
-- 右移一位实现除以2操作
-- 量子减法器计算D(i) = S(2i+1) - P(S)
-
-### Update量子电路块
-- 量子加法器计算D(i-1) + D(i)
-- 右移两位实现除以4操作
-- 量子加法器计算A(i) = S(2i) + W(D)
+- **Split量子电路块**：基于索引奇偶性分离，使用 CNOT 实现条件复制
+- **Predict量子电路块**：
+  - 行波进位加法器计算 `S(2i) + S(2i+2)`
+  - 通过高位映射实现除以2（右移）得到 `P(S)`
+  - 量子减法器计算 `D(i) = S(2i+1) - P(S)`
+- **Update量子电路块**：
+  - 行波进位加法器计算 `D(i-1) + D(i)`（边界用单侧 detail）
+  - 高位映射实现除以4（右移两位）得到 `W(D)`
+  - 简化量子加法器计算 `A(i) = S(2i) + W(D)`
 
 ## 演示结果
 
@@ -94,6 +118,11 @@ A(i) = S(2i) + W(D)
 ```
 
 分割为4个2x2块，每个块应用CDF(2,2)变换，生成近似系数和详细系数。
+
+## 与图示一致性
+
+- **figure5（块状电路）**：`quantum_block_circuits.py` 中 Split/Predict/Update 现按提升公式计算，Predict 显式使用 `S(2i), S(2i+2), S(2i+1)`；完整块电路贯通三步。
+- **figure6（三层分解）**：`quantum_vs_classical_matlab.m` 新增多层分解函数与演示，输出一维信号的三层分解结果。
 
 ## 技术特点
 

@@ -13,10 +13,37 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
-from qiskit import Aer, execute, transpile
-from qiskit.visualization import plot_histogram, circuit_drawer
-import cv2
-from PIL import Image
+try:
+    from qiskit import Aer, execute, transpile
+    from qiskit.visualization import plot_histogram, circuit_drawer
+    QISKIT_AVAILABLE = True
+except ImportError:
+    try:
+        from qiskit_aer import Aer
+        from qiskit import execute, transpile
+        from qiskit.visualization import plot_histogram, circuit_drawer
+        QISKIT_AVAILABLE = True
+    except ImportError:
+        print("Warning: Qiskit Aer not available. Quantum simulation features will be disabled.")
+        QISKIT_AVAILABLE = False
+        Aer = None
+        execute = None
+        transpile = None
+        plot_histogram = None
+        circuit_drawer = None
+
+try:
+    import cv2
+except ImportError:
+    print("Warning: OpenCV not available. Using numpy for image processing.")
+    cv2 = None
+
+try:
+    from PIL import Image
+except ImportError:
+    print("Warning: PIL not available.")
+    Image = None
+
 import os
 import time
 
@@ -103,21 +130,36 @@ class QuantumCDFDemo:
                 # 创建量子电路
                 qc = self.quantum_blocks.create_complete_cdf_block_circuit(block)
                 
-                # 运行量子模拟
-                simulator = Aer.get_backend('qasm_simulator')
-                compiled_circuit = transpile(qc, simulator)
-                job = execute(compiled_circuit, simulator, shots=1024)
-                result = job.result()
-                counts = result.get_counts()
-                
-                quantum_results.append({
-                    'original': block,
-                    'quantum_circuit': qc,
-                    'measurement_counts': counts,
-                    'block_id': i
-                })
-                
-                print(f"  量子测量结果: {counts}")
+                if QISKIT_AVAILABLE and Aer is not None:
+                    # 运行量子模拟
+                    simulator = Aer.get_backend('qasm_simulator')
+                    compiled_circuit = transpile(qc, simulator)
+                    job = execute(compiled_circuit, simulator, shots=1024)
+                    result = job.result()
+                    counts = result.get_counts()
+                    
+                    quantum_results.append({
+                        'original': block,
+                        'quantum_circuit': qc,
+                        'measurement_counts': counts,
+                        'block_id': i
+                    })
+                    
+                    print(f"  量子测量结果: {counts}")
+                else:
+                    # 没有Aer时，只创建电路不运行模拟
+                    quantum_results.append({
+                        'original': block,
+                        'quantum_circuit': qc,
+                        'measurement_counts': None,
+                        'block_id': i,
+                        'note': 'Quantum simulation disabled - circuit created only'
+                    })
+                    
+                    print(f"  量子电路创建成功 (模拟已禁用)")
+                    print(f"    量子比特数: {qc.num_qubits}")
+                    print(f"    电路深度: {qc.depth()}")
+                    print(f"    门数量: {len(qc.data)}")
                 
             except Exception as e:
                 print(f"  量子处理出错: {e}")
@@ -269,14 +311,20 @@ class QuantumCDFDemo:
             # 创建电路图
             fig = plt.figure(figsize=(16, 10))
             
-            try:
-                circuit_diagram = circuit_drawer(qc, output='mpl', style='iqx', fold=-1)
-                plt.title(f"量子CDF(2,2)小波变换电路 - 块 {quantum_result['block_id']+1}", 
-                         fontsize=14, fontweight='bold')
-            except Exception as e:
-                plt.text(0.5, 0.5, f"电路可视化错误: {e}", 
-                        ha='center', va='center', transform=plt.gca().transAxes)
-                plt.title("量子电路可视化")
+            if QISKIT_AVAILABLE and circuit_drawer is not None:
+                try:
+                    circuit_diagram = circuit_drawer(qc, output='mpl', style='iqx', fold=-1)
+                    plt.title(f"量子CDF(2,2)小波变换电路 - 块 {quantum_result['block_id']+1}", 
+                             fontsize=14, fontweight='bold')
+                except Exception as e:
+                    plt.text(0.5, 0.5, f"电路可视化错误: {e}", 
+                            ha='center', va='center', transform=plt.gca().transAxes)
+                    plt.title("量子电路可视化")
+            else:
+                # 没有circuit_drawer时显示电路信息
+                plt.text(0.5, 0.5, f"量子电路信息:\n量子比特数: {qc.num_qubits}\n电路深度: {qc.depth()}\n门数量: {len(qc.data)}", 
+                        ha='center', va='center', transform=plt.gca().transAxes, fontsize=12)
+                plt.title(f"量子CDF(2,2)小波变换电路 - 块 {quantum_result['block_id']+1}")
             
             plt.tight_layout()
             return fig
