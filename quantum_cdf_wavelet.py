@@ -157,49 +157,114 @@ class QuantumCDFWaveletTransform:
     def create_complete_cdf_circuit(self, signal_data):
         """
         创建完整的CDF(2,2)小波变换量子电路
+        实现完整的Split-Predict-Update流程
         """
-        signal_length = len(signal_data)
+        n = len(signal_data)
+        if n % 2 != 0:
+            raise ValueError("Signal length must be even")
         
-        # 创建主要的量子寄存器
-        signal_reg = QuantumRegister(self.bit_precision, 'signal')
-        index_reg = QuantumRegister(int(np.ceil(np.log2(signal_length))), 'index')
+        # 创建量子寄存器
+        input_reg = QuantumRegister(self.bit_precision * n, 'input')
+        even_reg = QuantumRegister(self.bit_precision * (n // 2), 'even')
+        odd_reg = QuantumRegister(self.bit_precision * (n // 2), 'odd')
         
-        # Split步骤的寄存器
-        even_reg = QuantumRegister(self.bit_precision, 'even')
-        odd_reg = QuantumRegister(self.bit_precision, 'odd')
-        
-        # Predict步骤的寄存器
-        predict_reg = QuantumRegister(self.bit_precision + 1, 'predict')
-        detail_reg = QuantumRegister(self.bit_precision, 'detail')
-        
-        # Update步骤的寄存器
-        approx_reg = QuantumRegister(self.bit_precision, 'approx')
+        # 中间计算寄存器
+        predict_reg = QuantumRegister(self.bit_precision * (n // 2), 'predict')
+        detail_reg = QuantumRegister(self.bit_precision * (n // 2), 'detail')
+        update_reg = QuantumRegister(self.bit_precision * (n // 2), 'update')
+        approx_reg = QuantumRegister(self.bit_precision * (n // 2), 'approx')
         
         # 经典寄存器
-        cr = ClassicalRegister(self.bit_precision * 3, 'result')
+        cr_approx = ClassicalRegister(self.bit_precision * (n // 2), 'cr_approx')
+        cr_detail = ClassicalRegister(self.bit_precision * (n // 2), 'cr_detail')
         
-        qc = QuantumCircuit(signal_reg, index_reg, even_reg, odd_reg, 
-                           predict_reg, detail_reg, approx_reg, cr)
+        qc = QuantumCircuit(input_reg, even_reg, odd_reg, 
+                           predict_reg, detail_reg, update_reg, approx_reg,
+                           cr_approx, cr_detail)
         
-        # 初始化信号数据
+        # 初始化输入信号
         for i, value in enumerate(signal_data):
-            # 将每个信号值编码到量子态中
             binary_value = format(int(value), f'0{self.bit_precision}b')
             for j, bit in enumerate(binary_value):
                 if bit == '1':
-                    qc.x(signal_reg[j])
+                    qc.x(input_reg[i * self.bit_precision + j])
         
-        # Step 1: Split - 分离奇偶样本
+        # Step 1: Split
         qc.barrier(label='Split')
-        # 实现分离逻辑...
+        even_idx = 0
+        odd_idx = 0
         
-        # Step 2: Predict - 计算预测值
+        for i in range(n):
+            if i % 2 == 0:  # 偶数位置
+                for j in range(self.bit_precision):
+                    qc.cx(input_reg[i * self.bit_precision + j], 
+                          even_reg[even_idx * self.bit_precision + j])
+                even_idx += 1
+            else:  # 奇数位置
+                for j in range(self.bit_precision):
+                    qc.cx(input_reg[i * self.bit_precision + j], 
+                          odd_reg[odd_idx * self.bit_precision + j])
+                odd_idx += 1
+        
+        # Step 2: Predict
         qc.barrier(label='Predict')
-        # 实现预测逻辑...
+        for i in range(n // 2):
+            # 计算 P(S) = 1/2[S(2i) + S(2i+2)]
+            if i == 0:
+                # 边界处理
+                for j in range(self.bit_precision):
+                    qc.cx(even_reg[i * self.bit_precision + j], 
+                          predict_reg[i * self.bit_precision + j])
+            elif i == n // 2 - 1:
+                # 边界处理
+                for j in range(self.bit_precision):
+                    qc.cx(even_reg[(i-1) * self.bit_precision + j], 
+                          predict_reg[i * self.bit_precision + j])
+            else:
+                # 正常情况：平均两个相邻的偶数值
+                for j in range(self.bit_precision):
+                    qc.cx(even_reg[i * self.bit_precision + j], 
+                          predict_reg[i * self.bit_precision + j])
+                    qc.cx(even_reg[(i+1) * self.bit_precision + j], 
+                          predict_reg[i * self.bit_precision + j])
+            
+            # 计算 D(i) = S(2i+1) - P(S)
+            for j in range(self.bit_precision):
+                qc.cx(odd_reg[i * self.bit_precision + j], 
+                      detail_reg[i * self.bit_precision + j])
         
-        # Step 3: Update - 计算更新值
+        # Step 3: Update
         qc.barrier(label='Update')
-        # 实现更新逻辑...
+        for i in range(n // 2):
+            # 计算 W(D) = 1/4[D(i-1) + D(i)]
+            if i == 0:
+                # 边界处理
+                for j in range(self.bit_precision):
+                    qc.cx(detail_reg[i * self.bit_precision + j], 
+                          update_reg[i * self.bit_precision + j])
+            elif i == n // 2 - 1:
+                # 边界处理
+                for j in range(self.bit_precision):
+                    qc.cx(detail_reg[(i-1) * self.bit_precision + j], 
+                          update_reg[i * self.bit_precision + j])
+            else:
+                # 正常情况：平均两个相邻的详细系数
+                for j in range(self.bit_precision):
+                    qc.cx(detail_reg[(i-1) * self.bit_precision + j], 
+                          update_reg[i * self.bit_precision + j])
+                    qc.cx(detail_reg[i * self.bit_precision + j], 
+                          update_reg[i * self.bit_precision + j])
+            
+            # 计算 A(i) = S(2i) + W(D)
+            for j in range(self.bit_precision):
+                qc.cx(even_reg[i * self.bit_precision + j], 
+                      approx_reg[i * self.bit_precision + j])
+                qc.cx(update_reg[i * self.bit_precision + j], 
+                      approx_reg[i * self.bit_precision + j])
+        
+        # 测量结果
+        qc.measure(approx_reg, cr_approx)
+        qc.measure(detail_reg, cr_detail)
         
         return qc
     

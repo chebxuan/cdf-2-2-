@@ -8,6 +8,205 @@ fprintf('='*60); fprintf('\n');
 fprintf('量子CDF(2,2)变换与经典CDF(2,2)变换对比分析\n');
 fprintf('='*60); fprintf('\n');
 
+%% 经典CDF(2,2)多层分解函数
+function [A3, D3, D2, D1] = classical_cdf_transform_multilevel(signal, levels)
+    % 经典CDF(2,2)多层小波分解
+    % 输入: signal - 输入信号, levels - 分解层数
+    % 输出: A3 - 第3层近似系数, D3, D2, D1 - 各层详细系数
+    
+    if nargin < 2
+        levels = 3;
+    end
+    
+    % 初始化输出
+    D1 = [];
+    D2 = [];
+    D3 = [];
+    
+    % 第1层分解
+    [A1, D1] = classical_cdf_transform(signal);
+    
+    if levels >= 2
+        % 第2层分解（对A1进行分解）
+        [A2, D2] = classical_cdf_transform(A1);
+        
+        if levels >= 3
+            % 第3层分解（对A2进行分解）
+            [A3, D3] = classical_cdf_transform(A2);
+        else
+            A3 = A2;
+        end
+    else
+        A3 = A1;
+    end
+end
+
+%% 量子模拟CDF(2,2)多层分解函数
+function [A3, D3, D2, D1] = quantum_simulated_cdf_transform_multilevel(signal, levels)
+    % 量子模拟CDF(2,2)多层小波分解
+    % 输入: signal - 输入信号, levels - 分解层数
+    % 输出: A3 - 第3层近似系数, D3, D2, D1 - 各层详细系数
+    
+    if nargin < 2
+        levels = 3;
+    end
+    
+    % 初始化输出
+    D1 = [];
+    D2 = [];
+    D3 = [];
+    
+    % 第1层分解
+    [A1, D1] = quantum_simulated_cdf_transform(signal);
+    
+    if levels >= 2
+        % 第2层分解（对A1进行分解）
+        [A2, D2] = quantum_simulated_cdf_transform(A1);
+        
+        if levels >= 3
+            % 第3层分解（对A2进行分解）
+            [A3, D3] = quantum_simulated_cdf_transform(A2);
+        else
+            A3 = A2;
+        end
+    else
+        A3 = A1;
+    end
+end
+
+%% 多层分解对比函数
+function result = compare_multilevel_transforms(signal)
+    % 对比经典和量子模拟多层变换
+    % 经典多层变换
+    tic;
+    [A3_classical, D3_classical, D2_classical, D1_classical] = classical_cdf_transform_multilevel(signal, 3);
+    classical_time = toc;
+    
+    % 量子模拟多层变换
+    tic;
+    [A3_quantum, D3_quantum, D2_quantum, D1_quantum] = quantum_simulated_cdf_transform_multilevel(signal, 3);
+    quantum_time = toc;
+    
+    % 计算各层差异
+    A3_diff = abs(A3_classical - A3_quantum);
+    D3_diff = abs(D3_classical - D3_quantum);
+    D2_diff = abs(D2_classical - D2_quantum);
+    D1_diff = abs(D1_classical - D1_quantum);
+    
+    result = struct();
+    result.classical = struct('A3', A3_classical, 'D3', D3_classical, 'D2', D2_classical, 'D1', D1_classical, 'time', classical_time);
+    result.quantum = struct('A3', A3_quantum, 'D3', D3_quantum, 'D2', D2_quantum, 'D1', D1_quantum, 'time', quantum_time);
+    result.differences = struct('A3_diff', A3_diff, 'D3_diff', D3_diff, 'D2_diff', D2_diff, 'D1_diff', D1_diff, ...
+        'max_A3_diff', max(A3_diff), 'max_D3_diff', max(D3_diff), 'max_D2_diff', max(D2_diff), 'max_D1_diff', max(D1_diff), ...
+        'mean_A3_diff', mean(A3_diff), 'mean_D3_diff', mean(D3_diff), 'mean_D2_diff', mean(D2_diff), 'mean_D1_diff', mean(D1_diff));
+end
+
+%% 可视化多层分解结果
+function visualize_multilevel_results(result)
+    % 可视化多层分解结果
+    try
+        figure('Position', [100, 100, 1400, 1000]);
+        
+        % 1. 第3层近似系数对比
+        subplot(3, 3, 1);
+        scatter(result.classical.A3, result.quantum.A3, 'b', 'filled', 'Alpha', 0.6);
+        hold on;
+        min_val = min([result.classical.A3, result.quantum.A3]);
+        max_val = max([result.classical.A3, result.quantum.A3]);
+        plot([min_val, max_val], [min_val, max_val], 'r--', 'LineWidth', 2);
+        xlabel('经典A3');
+        ylabel('量子模拟A3');
+        title('第3层近似系数对比');
+        legend('数据点', '理想线', 'Location', 'best');
+        grid on;
+        
+        % 2. 第1层详细系数对比
+        subplot(3, 3, 2);
+        scatter(result.classical.D1, result.quantum.D1, 'g', 'filled', 'Alpha', 0.6);
+        hold on;
+        min_val = min([result.classical.D1, result.quantum.D1]);
+        max_val = max([result.classical.D1, result.quantum.D1]);
+        plot([min_val, max_val], [min_val, max_val], 'r--', 'LineWidth', 2);
+        xlabel('经典D1');
+        ylabel('量子模拟D1');
+        title('第1层详细系数对比');
+        legend('数据点', '理想线', 'Location', 'best');
+        grid on;
+        
+        % 3. 第2层详细系数对比
+        subplot(3, 3, 3);
+        scatter(result.classical.D2, result.quantum.D2, 'm', 'filled', 'Alpha', 0.6);
+        hold on;
+        min_val = min([result.classical.D2, result.quantum.D2]);
+        max_val = max([result.classical.D2, result.quantum.D2]);
+        plot([min_val, max_val], [min_val, max_val], 'r--', 'LineWidth', 2);
+        xlabel('经典D2');
+        ylabel('量子模拟D2');
+        title('第2层详细系数对比');
+        legend('数据点', '理想线', 'Location', 'best');
+        grid on;
+        
+        % 4. 第3层详细系数对比
+        subplot(3, 3, 4);
+        scatter(result.classical.D3, result.quantum.D3, 'c', 'filled', 'Alpha', 0.6);
+        hold on;
+        min_val = min([result.classical.D3, result.quantum.D3]);
+        max_val = max([result.classical.D3, result.quantum.D3]);
+        plot([min_val, max_val], [min_val, max_val], 'r--', 'LineWidth', 2);
+        xlabel('经典D3');
+        ylabel('量子模拟D3');
+        title('第3层详细系数对比');
+        legend('数据点', '理想线', 'Location', 'best');
+        grid on;
+        
+        % 5. 各层差异分布
+        subplot(3, 3, 5);
+        histogram(result.differences.A3_diff, 20, 'FaceColor', 'blue', 'Alpha', 0.7);
+        xlabel('差异值');
+        ylabel('频次');
+        title('A3差异分布');
+        grid on;
+        
+        subplot(3, 3, 6);
+        histogram(result.differences.D1_diff, 20, 'FaceColor', 'green', 'Alpha', 0.7);
+        xlabel('差异值');
+        ylabel('频次');
+        title('D1差异分布');
+        grid on;
+        
+        subplot(3, 3, 7);
+        histogram(result.differences.D2_diff, 20, 'FaceColor', 'magenta', 'Alpha', 0.7);
+        xlabel('差异值');
+        ylabel('频次');
+        title('D2差异分布');
+        grid on;
+        
+        subplot(3, 3, 8);
+        histogram(result.differences.D3_diff, 20, 'FaceColor', 'cyan', 'Alpha', 0.7);
+        xlabel('差异值');
+        ylabel('频次');
+        title('D3差异分布');
+        grid on;
+        
+        % 9. 性能对比
+        subplot(3, 3, 9);
+        bar([result.classical.time, result.quantum.time]);
+        set(gca, 'XTickLabel', {'经典', '量子模拟'});
+        ylabel('时间 (秒)');
+        title('性能对比');
+        grid on;
+        
+        sgtitle('量子CDF(2,2)三层分解与经典CDF(2,2)三层分解对比分析', 'FontSize', 14, 'FontWeight', 'bold');
+        
+        % 保存图像
+        saveas(gcf, 'quantum_vs_classical_multilevel_comparison_matlab.png');
+        fprintf('多层分解对比图已保存为 quantum_vs_classical_multilevel_comparison_matlab.png\n');
+        
+    catch ME
+        fprintf('多层分解可视化失败: %s\n', ME.message);
+    end
+end
+
 %% 经典CDF(2,2)小波变换函数
 function [approx, detail] = classical_cdf_transform(signal)
     % 经典CDF(2,2)小波变换实现
@@ -409,6 +608,42 @@ stats = analyze_results(all_results);
 
 % 可视化结果
 visualize_comparison(all_results);
+
+%% 三层分解测试
+fprintf('\n%s\n', repmat('=', 1, 60));
+fprintf('三层分解测试\n');
+fprintf('%s\n', repmat('=', 1, 60));
+
+% 创建测试一维信号
+test_signal = [1, 3, 2, 1, 2, 6, 6, 6, 5, 2, 7, 4, 3, 1, 7, 2];
+fprintf('测试一维信号 (长度 %d): [%s]\n', length(test_signal), num2str(test_signal, '%.1f '));
+
+% 三层分解对比
+multilevel_result = compare_multilevel_transforms(test_signal);
+
+fprintf('\n三层分解结果:\n');
+fprintf('经典版本:\n');
+fprintf('  A3 (第3层近似): [%s]\n', num2str(multilevel_result.classical.A3, '%.3f '));
+fprintf('  D1 (第1层详细): [%s]\n', num2str(multilevel_result.classical.D1, '%.3f '));
+fprintf('  D2 (第2层详细): [%s]\n', num2str(multilevel_result.classical.D2, '%.3f '));
+fprintf('  D3 (第3层详细): [%s]\n', num2str(multilevel_result.classical.D3, '%.3f '));
+fprintf('  处理时间: %.6fs\n', multilevel_result.classical.time);
+
+fprintf('量子模拟版本:\n');
+fprintf('  A3 (第3层近似): [%s]\n', num2str(multilevel_result.quantum.A3, '%.3f '));
+fprintf('  D1 (第1层详细): [%s]\n', num2str(multilevel_result.quantum.D1, '%.3f '));
+fprintf('  D2 (第2层详细): [%s]\n', num2str(multilevel_result.quantum.D2, '%.3f '));
+fprintf('  D3 (第3层详细): [%s]\n', num2str(multilevel_result.quantum.D3, '%.3f '));
+fprintf('  处理时间: %.6fs\n', multilevel_result.quantum.time);
+
+fprintf('三层分解差异分析:\n');
+fprintf('  A3最大差异: %.6f, 平均差异: %.6f\n', multilevel_result.differences.max_A3_diff, multilevel_result.differences.mean_A3_diff);
+fprintf('  D1最大差异: %.6f, 平均差异: %.6f\n', multilevel_result.differences.max_D1_diff, multilevel_result.differences.mean_D1_diff);
+fprintf('  D2最大差异: %.6f, 平均差异: %.6f\n', multilevel_result.differences.max_D2_diff, multilevel_result.differences.mean_D2_diff);
+fprintf('  D3最大差异: %.6f, 平均差异: %.6f\n', multilevel_result.differences.max_D3_diff, multilevel_result.differences.mean_D3_diff);
+
+% 可视化三层分解结果
+visualize_multilevel_results(multilevel_result);
 
 fprintf('\n分析完成！\n');
 fprintf('量子版本精度: %.1f%% (近似系数), %.1f%% (详细系数)\n', ...
