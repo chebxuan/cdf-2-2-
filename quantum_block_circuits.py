@@ -91,7 +91,7 @@ class QuantumBlockCircuits:
         
         return qc
     
-    def create_predict_block(self, s_2i, s_2i_plus_2):
+    def create_predict_block(self, s_2i, s_2i_plus_2, s_2i_plus_1):
         """
         创建Predict块电路
         实现 P(S) = 1/2[S(2i) + S(2i+2)]
@@ -116,7 +116,7 @@ class QuantumBlockCircuits:
                            cr_predict, cr_detail)
         
         # 初始化输入值
-        for value, reg in [(s_2i, s_2i_reg), (s_2i_plus_2, s_2i_plus_2_reg)]:
+        for value, reg in [(s_2i, s_2i_reg), (s_2i_plus_2, s_2i_plus_2_reg), (s_2i_plus_1, s_2i_plus_1_reg)]:
             binary_value = format(int(value), f'0{self.bit_precision}b')
             for j, bit in enumerate(binary_value):
                 if bit == '1':
@@ -299,19 +299,24 @@ class QuantumBlockCircuits:
         even_reg = QuantumRegister(self.bit_precision * (n // 2), 'even')
         odd_reg = QuantumRegister(self.bit_precision * (n // 2), 'odd')
         
-        # Predict结果
+        # Predict/Detail输出
         predict_reg = QuantumRegister(self.bit_precision * (n // 2), 'predict')
         detail_reg = QuantumRegister(self.bit_precision * (n // 2), 'detail')
         
-        # Update结果
+        # Update/Approx输出
         update_reg = QuantumRegister(self.bit_precision * (n // 2), 'update')
         approx_reg = QuantumRegister(self.bit_precision * (n // 2), 'approx')
+        
+        # 中间求和寄存器（用于 + 和 位移）
+        sum_predict_reg = QuantumRegister(self.bit_precision + 1, 'sum_predict')
+        sum_update_reg = QuantumRegister(self.bit_precision + 1, 'sum_update')
         
         # 经典寄存器
         cr_approx = ClassicalRegister(self.bit_precision * (n // 2), 'cr_approx')
         cr_detail = ClassicalRegister(self.bit_precision * (n // 2), 'cr_detail')
         
-        qc = QuantumCircuit(input_reg, even_reg, odd_reg, 
+        qc = QuantumCircuit(input_reg, even_reg, odd_reg,
+                           sum_predict_reg, sum_update_reg,
                            predict_reg, detail_reg, update_reg, approx_reg,
                            cr_approx, cr_detail)
         
@@ -326,7 +331,6 @@ class QuantumBlockCircuits:
         qc.barrier(label='SPLIT STEP')
         even_idx = 0
         odd_idx = 0
-        
         for i in range(n):
             if i % 2 == 0:  # 偶数位置 -> even_reg
                 for j in range(self.bit_precision):
@@ -341,35 +345,75 @@ class QuantumBlockCircuits:
         
         # Step 2: Predict (对每个奇数位置计算预测值和详细系数)
         qc.barrier(label='PREDICT STEP')
-        
-        for i in range(n // 2):  # 对每个奇数位置
-            # 获取相邻的偶数位置值进行预测
+        bp = self.bit_precision
+        half = n // 2
+        for i in range(half):
+            # 选择 S(2i) 与 S(2i+2) 的边界索引
             if i == 0:
-                # 边界情况：使用第一个偶数值
-                s_2i_start = 0
-                s_2i_plus_2_start = 0 if n // 2 == 1 else self.bit_precision
-            elif i == n // 2 - 1:
-                # 边界情况：使用最后一个偶数值
-                s_2i_start = (i - 1) * self.bit_precision
-                s_2i_plus_2_start = (i - 1) * self.bit_precision
+                left_even_index = 0
+                right_even_index = 1 if half > 1 else 0
+            elif i == half - 1:
+                left_even_index = i - 1
+                right_even_index = i
             else:
-                s_2i_start = i * self.bit_precision
-                s_2i_plus_2_start = (i + 1) * self.bit_precision
+                left_even_index = i
+                right_even_index = i + 1
             
-            # 实现预测计算的简化版本
-            # 这里我们直接复制值作为简化实现
-            for j in range(self.bit_precision):
-                qc.cx(even_reg[s_2i_start + j], predict_reg[i * self.bit_precision + j])
-                qc.cx(odd_reg[i * self.bit_precision + j], detail_reg[i * self.bit_precision + j])
+            # 构造切片（作为量子比特列表传入加法/减法器）
+            s2i_slice = [even_reg[left_even_index * bp + k] for k in range(bp)]
+            s2i_plus2_slice = [even_reg[right_even_index * bp + k] for k in range(bp)]
+            sum_pred_slice = [sum_predict_reg[k] for k in range(bp + 1)]
+            pred_out_slice = [predict_reg[i * bp + k] for k in range(bp)]
+            s2i_plus1_slice = [odd_reg[i * bp + k] for k in range(bp)]
+            detail_out_slice = [detail_reg[i * bp + k] for k in range(bp)]
+            
+            # 求和: S(2i)+S(2i+2)
+            self._quantum_adder_ripple_carry(qc, s2i_slice, s2i_plus2_slice, sum_pred_slice)
+            
+            # 除以2: 将 sum 的高位映射到 predict 的各位
+            for k in range(bp):
+                if k < bp - 1:
+                    qc.cx(sum_pred_slice[k+1], pred_out_slice[k])
+                else:
+                    qc.cx(sum_pred_slice[bp], pred_out_slice[k])
+            
+            # 计算 detail: D(i) = S(2i+1) - P(S)
+            self._quantum_subtractor(qc, s2i_plus1_slice, pred_out_slice, detail_out_slice)
         
         # Step 3: Update (计算更新值和近似系数)
         qc.barrier(label='UPDATE STEP')
-        
-        for i in range(n // 2):
-            # 简化的更新计算
-            for j in range(self.bit_precision):
-                qc.cx(even_reg[i * self.bit_precision + j], approx_reg[i * self.bit_precision + j])
-                qc.cx(detail_reg[i * self.bit_precision + j], update_reg[i * self.bit_precision + j])
+        for i in range(half):
+            update_out_slice = [update_reg[i * bp + k] for k in range(bp)]
+            approx_out_slice = [approx_reg[i * bp + k] for k in range(bp)]
+            even_slice = [even_reg[i * bp + k] for k in range(bp)]
+            
+            # 计算 W(D) = 1/4 [D(i-1) + D(i)]，边界单侧处理
+            if i == 0:
+                # sum_update = D(0)
+                for k in range(bp):
+                    qc.cx(detail_reg[0 * bp + k], sum_update_reg[k])
+            elif i == half - 1:
+                # sum_update = D(i-1)
+                for k in range(bp):
+                    qc.cx(detail_reg[(i-1) * bp + k], sum_update_reg[k])
+            else:
+                d_im1_slice = [detail_reg[(i-1) * bp + k] for k in range(bp)]
+                d_i_slice = [detail_reg[i * bp + k] for k in range(bp)]
+                sum_upd_slice = [sum_update_reg[k] for k in range(bp + 1)]
+                self._quantum_adder_ripple_carry(qc, d_im1_slice, d_i_slice, sum_upd_slice)
+            
+            # 除以4: 将 sum_update 的更高两位映射到 update 的各位
+            for k in range(bp):
+                if k < bp - 2:
+                    qc.cx(sum_update_reg[k+2], update_out_slice[k])
+                elif k == bp - 2:
+                    qc.cx(sum_update_reg[bp], update_out_slice[k])
+                else:
+                    # 保持最高位为0
+                    pass
+            
+            # 计算 A(i) = S(2i) + W(D)
+            self._quantum_adder_simple(qc, even_slice, update_out_slice, approx_out_slice)
         
         # 测量最终结果
         qc.measure(approx_reg, cr_approx)
@@ -424,7 +468,7 @@ def test_quantum_blocks():
     # 测试Predict块
     print("\n2. 测试Predict块:")
     try:
-        predict_circuit = qbc.create_predict_block(1, 2)
+        predict_circuit = qbc.create_predict_block(1, 2, 3)
         print(f"   Predict电路创建成功!")
         print(f"   量子比特数: {predict_circuit.num_qubits}")
         print(f"   电路深度: {predict_circuit.depth()}")

@@ -129,6 +129,32 @@ function [approx, detail] = quantum_simulated_cdf_transform(signal)
     approx = even + update;
 end
 
+%% 多层分解：经典版本
+function [A, D] = classical_cdf_transform_multilevel(signal, levels)
+    % 对一维信号进行多层CDF(2,2)分解
+    % 输出：A 为第 levels 层近似；D 为长度为 levels 的 cell，D{1} 为第一层细节，依此类推
+    x = double(signal(:)');
+    D = cell(1, levels);
+    for lev = 1:levels
+        [approx, detail] = classical_cdf_transform(x);
+        D{lev} = detail;
+        x = approx;  % 下一层使用近似部分
+    end
+    A = x;
+end
+
+%% 多层分解：量子模拟版本
+function [A, D] = quantum_simulated_cdf_transform_multilevel(signal, levels)
+    x = double(signal(:)');
+    D = cell(1, levels);
+    for lev = 1:levels
+        [approx, detail] = quantum_simulated_cdf_transform(x);
+        D{lev} = detail;
+        x = approx;
+    end
+    A = x;
+end
+
 %% 图像加载和预处理函数
 function image = load_and_preprocess_image(image_path)
     % 加载和预处理图像
@@ -414,6 +440,26 @@ fprintf('\n分析完成！\n');
 fprintf('量子版本精度: %.1f%% (近似系数), %.1f%% (详细系数)\n', ...
     stats.approx_stats.success_rate, stats.detail_stats.success_rate);
 
+%% 三层分解演示（Figure 6 要求）
+try
+    fprintf('\n%s\n', repmat('-', 1, 60));
+    fprintf('一维信号的三层分解演示 (经典与量子模拟)\n');
+    fprintf('%s\n', repmat('-', 1, 60));
+    test_signal = [1, 3, 2, 6, 5, 2, 7, 4];  % 示例一维信号，长度为偶数
+    levels = 3;
+    
+    [A3_c, D_c] = classical_cdf_transform_multilevel(test_signal, levels);
+    [A3_q, D_q] = quantum_simulated_cdf_transform_multilevel(test_signal, levels);
+    
+    fprintf('经典三层分解: A3=[%s], D3=[%s], D2=[%s], D1=[%s]\n', ...
+        num2str(A3_c, '%.3f '), num2str(D_c{3}, '%.3f '), num2str(D_c{2}, '%.3f '), num2str(D_c{1}, '%.3f '));
+    fprintf('量子三层分解: A3=[%s], D3=[%s], D2=[%s], D1=[%s]\n', ...
+        num2str(A3_q, '%.3f '), num2str(D_q{3}, '%.3f '), num2str(D_q{2}, '%.3f '), num2str(D_q{1}, '%.3f '));
+catch ME
+    fprintf('三层分解演示失败: %s\n', ME.message);
+end
+
+fprintf('\n');
 %% 结论和建议
 fprintf('\n%s\n', repmat('=', 1, 60));
 fprintf('结论和建议\n');
